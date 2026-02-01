@@ -90,7 +90,7 @@ BDS服务端/
 不想配置本地环境？可以用 GitHub Actions 自动编译！
 
 ```shell
-git commit -m "build version 0.0.1-alpha.1"
+git commit -m "build version 0.0.1-alpha.1+20260201"
 # 或者
 git commit -m "fix: 修复bug build version 0.0.2"
 ```
