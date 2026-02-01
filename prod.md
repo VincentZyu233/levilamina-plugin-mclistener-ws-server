@@ -86,8 +86,12 @@ plugins/mclistener-ws-server/config/config.json
 
 **选择建议**：
 - 如果聊天消息能正常转发，使用默认的 `"event"`
-- 如果聊天消息无法转发（被其他聊天美化插件拦截），尝试 `"hook_packet"`
+- 如果聊天消息无法转发（被其他聊天美化插件如 GwChat 拦截），使用 `"hook_packet"`
 - 如果不确定哪种方式有效，可以先用 `"both"` 测试，再选择其中一种
+
+**技术说明**：
+- `event` 模式使用 LeviLamina 的事件系统，如果有插件（如 GwChat）取消了 `PlayerChatEvent`，则无法捕获聊天
+- `hook_packet` 模式使用高优先级（High=100）直接 Hook `ServerNetworkHandler::$handle` 处理 TextPacket，在 LeviLamina 的事件系统（Normal=200）之前执行，因此不受其他插件影响
 
 ---
 

@@ -28,25 +28,24 @@ static MclistenerWsServerMod* g_modInstance = nullptr;
 static bool hookEnabled = false;
 
 // Hook TextPacket 处理函数
+// 使用 High 优先级，在 LeviLamina 的 PlayerChatEvent hook (Normal=200) 之前执行
+// 这样即使 GwChat 取消了 PlayerChatEvent，我们也能捕获到消息
 LL_TYPE_INSTANCE_HOOK(
     TextPacketHook,
-    ll::memory::HookPriority::Low, // 低优先级，在其他插件之后执行
+    ll::memory::HookPriority::High, // High=100, 在 Normal=200 之前执行
     ServerNetworkHandler,
     &ServerNetworkHandler::$handle,
     void,
     NetworkIdentifier const& identifier,
     TextPacket const&        packet
 ) {
-    // 先调用原始函数
-    origin(identifier, packet);
-    
-    // 只有在 hook 模式启用时才处理
+    // 在调用 origin 之前先捕获消息（在其他插件处理之前）
     if (hookEnabled && g_modInstance && g_modInstance->getConfig().enablePlayerChatBroadcast) {
         if (auto player = thisFor<NetEventCallback>()->_getServerPlayer(identifier, packet.mSenderSubId); player) {
             auto msg = std::visit([](auto&& arg) { return arg.mMessage; }, packet.mBody.get());
             std::string playerName = player->getRealName();
             
-            g_modInstance->getSelf().getLogger().trace("TextPacketHook triggered");
+            g_modInstance->getSelf().getLogger().trace("TextPacketHook triggered (High priority, before event system)");
             g_modInstance->getSelf().getLogger().debug("[Hook] {} said: {}", playerName, msg);
             
             nlohmann::json jsonMsg;
@@ -63,6 +62,9 @@ LL_TYPE_INSTANCE_HOOK(
             }
         }
     }
+    
+    // 调用原始函数链（让 LeviLamina 和其他插件继续处理）
+    origin(identifier, packet);
 }
 
 // Hook 注册器
@@ -123,17 +125,17 @@ bool MclistenerWsServerMod::load() {
     // 设置日志级别
     ll::io::LogLevel logLevel = parseLogLevel(mConfig.logLevel);
     logger.setLevel(logLevel);
-    logger.info("Log level set to: {}", mConfig.logLevel);
+    logger.info("Log level set to: {}", std::string(mConfig.logLevel));
 
     // 输出配置信息 (debug 级别)
     logger.debug("Configuration loaded:");
-    logger.debug("  - host: {}", mConfig.host);
+    logger.debug("  - host: {}", std::string(mConfig.host));
     logger.debug("  - port: {}", mConfig.port);
     logger.debug("  - enablePlayerJoinBroadcast: {}", mConfig.enablePlayerJoinBroadcast);
     logger.debug("  - enablePlayerLeaveBroadcast: {}", mConfig.enablePlayerLeaveBroadcast);
     logger.debug("  - enablePlayerChatBroadcast: {}", mConfig.enablePlayerChatBroadcast);
     logger.debug("  - enableReceiveGroupMessage: {}", mConfig.enableReceiveGroupMessage);
-    logger.debug("  - chatCaptureMode: {}", mConfig.chatCaptureMode);
+    logger.debug("  - chatCaptureMode: {}", std::string(mConfig.chatCaptureMode));
 
     logger.info("mclistener-ws-server loaded successfully!");
     return true;
@@ -146,7 +148,7 @@ bool MclistenerWsServerMod::enable() {
     // 创建并启动 WebSocket 服务器
     mWsServer = std::make_unique<WebSocketServer>(mConfig.host, mConfig.port, this);
     
-    getSelf().getLogger().debug("Starting WebSocket server on {}:{}...", mConfig.host, mConfig.port);
+    getSelf().getLogger().debug("Starting WebSocket server on {}:{}...", std::string(mConfig.host), mConfig.port);
     if (!mWsServer->start()) {
         getSelf().getLogger().error("Failed to start WebSocket server!");
         getSelf().getLogger().fatal("Plugin cannot function without WebSocket server!");
@@ -296,7 +298,7 @@ bool MclistenerWsServerMod::enable() {
         std::transform(mode.begin(), mode.end(), mode.begin(), 
                        [](unsigned char c){ return std::tolower(c); });
         
-        getSelf().getLogger().info("Chat capture mode: {}", mConfig.chatCaptureMode);
+        getSelf().getLogger().info("Chat capture mode: {}", std::string(mConfig.chatCaptureMode));
         
         // 使用 event 方式
         if (mode == "event" || mode == "both") {
@@ -341,7 +343,7 @@ bool MclistenerWsServerMod::enable() {
         }
         
         if (mode != "event" && mode != "hook_packet" && mode != "both") {
-            getSelf().getLogger().warn("Unknown chatCaptureMode '{}', defaulting to 'event'", mConfig.chatCaptureMode);
+            getSelf().getLogger().warn("Unknown chatCaptureMode '{}', defaulting to 'event'", std::string(mConfig.chatCaptureMode));
             // 默认使用 event 方式
             bool hasEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerChatEvent>);
             mPlayerChatListener = eventBus.emplaceListener<ll::event::PlayerChatEvent>(
@@ -366,7 +368,7 @@ bool MclistenerWsServerMod::enable() {
     }
 
     getSelf().getLogger().info("mclistener-ws-server enabled successfully!");
-    getSelf().getLogger().info("WebSocket server listening on ws://{}:{}", mConfig.host, mConfig.port);
+    getSelf().getLogger().info("WebSocket server listening on ws://{}:{}", std::string(mConfig.host), mConfig.port);
     return true;
 }
 
