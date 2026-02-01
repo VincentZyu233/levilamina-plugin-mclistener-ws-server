@@ -7,6 +7,9 @@ namespace mclistener_ws_server {
 struct Config {
     int version = 1;
     
+    // 日志级别: "silent", "fatal", "error", "warn", "info", "debug", "trace"
+    std::string logLevel = "info";
+    
     // WebSocket 服务器配置
     std::string host = "0.0.0.0";
     int port = 60201;

@@ -19,6 +19,8 @@ WebSocketServer::~WebSocketServer() {
 }
 
 bool WebSocketServer::start() {
+    mMod->getSelf().getLogger().debug("Initializing Winsock...");
+    
     // 初始化 Winsock
     WSADATA wsaData;
     int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -26,18 +28,22 @@ bool WebSocketServer::start() {
         mMod->getSelf().getLogger().error("WSAStartup failed: {}", result);
         return false;
     }
+    mMod->getSelf().getLogger().trace("Winsock initialized successfully");
 
     // 创建服务器 socket
+    mMod->getSelf().getLogger().debug("Creating server socket...");
     mServerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (mServerSocket == INVALID_SOCKET) {
         mMod->getSelf().getLogger().error("Failed to create socket: {}", WSAGetLastError());
         WSACleanup();
         return false;
     }
+    mMod->getSelf().getLogger().trace("Server socket created: {}", static_cast<int>(mServerSocket));
 
     // 设置 socket 选项
     int opt = 1;
     setsockopt(mServerSocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+    mMod->getSelf().getLogger().trace("Socket options set (SO_REUSEADDR)");
 
     // 绑定地址
     sockaddr_in serverAddr{};
@@ -46,16 +52,19 @@ bool WebSocketServer::start() {
     
     if (mHost == "0.0.0.0") {
         serverAddr.sin_addr.s_addr = INADDR_ANY;
+        mMod->getSelf().getLogger().debug("Binding to all interfaces (0.0.0.0)");
     } else {
         inet_pton(AF_INET, mHost.c_str(), &serverAddr.sin_addr);
+        mMod->getSelf().getLogger().debug("Binding to specific host: {}", mHost);
     }
 
     if (bind(mServerSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-        mMod->getSelf().getLogger().error("Bind failed: {}", WSAGetLastError());
+        mMod->getSelf().getLogger().error("Bind failed on port {}: {}", mPort, WSAGetLastError());
         closesocket(mServerSocket);
         WSACleanup();
         return false;
     }
+    mMod->getSelf().getLogger().debug("Successfully bound to port {}", mPort);
 
     // 开始监听
     if (listen(mServerSocket, SOMAXCONN) == SOCKET_ERROR) {
@@ -64,21 +73,28 @@ bool WebSocketServer::start() {
         WSACleanup();
         return false;
     }
+    mMod->getSelf().getLogger().debug("Socket is now listening (backlog: SOMAXCONN)");
 
     mRunning = true;
     mAcceptThread = std::thread(&WebSocketServer::acceptLoop, this);
+    mMod->getSelf().getLogger().debug("Accept thread started");
 
     mMod->getSelf().getLogger().info("WebSocket server started on ws://{}:{}", mHost, mPort);
     return true;
 }
 
 void WebSocketServer::stop() {
-    if (!mRunning) return;
+    if (!mRunning) {
+        mMod->getSelf().getLogger().debug("WebSocket server already stopped");
+        return;
+    }
     
+    mMod->getSelf().getLogger().debug("Stopping WebSocket server...");
     mRunning = false;
 
     // 关闭服务器 socket，这会让 accept() 返回
     if (mServerSocket != INVALID_SOCKET) {
+        mMod->getSelf().getLogger().trace("Closing server socket...");
         closesocket(mServerSocket);
         mServerSocket = INVALID_SOCKET;
     }
@@ -86,6 +102,7 @@ void WebSocketServer::stop() {
     // 关闭所有客户端连接
     {
         std::lock_guard<std::mutex> lock(mClientsMutex);
+        mMod->getSelf().getLogger().debug("Closing {} client connections...", mClients.size());
         for (SOCKET client : mClients) {
             closesocket(client);
         }
@@ -94,6 +111,7 @@ void WebSocketServer::stop() {
 
     // 等待接受线程结束
     if (mAcceptThread.joinable()) {
+        mMod->getSelf().getLogger().trace("Waiting for accept thread to finish...");
         mAcceptThread.join();
     }
 
@@ -104,10 +122,13 @@ void WebSocketServer::stop() {
 void WebSocketServer::broadcast(const std::string& message) {
     std::lock_guard<std::mutex> lock(mClientsMutex);
     
+    mMod->getSelf().getLogger().trace("Broadcasting to {} clients: {}", mClients.size(), message);
+    
     std::vector<SOCKET> disconnected;
     
     for (SOCKET client : mClients) {
         if (!sendFrame(client, message)) {
+            mMod->getSelf().getLogger().debug("Failed to send to client, marking for removal");
             disconnected.push_back(client);
         }
     }
@@ -116,14 +137,22 @@ void WebSocketServer::broadcast(const std::string& message) {
     for (SOCKET client : disconnected) {
         mClients.erase(client);
         closesocket(client);
+        mMod->getSelf().getLogger().debug("Removed disconnected client");
+    }
+    
+    if (!disconnected.empty()) {
+        mMod->getSelf().getLogger().debug("Removed {} disconnected clients, {} remaining", 
+                                          disconnected.size(), mClients.size());
     }
 }
 
 void WebSocketServer::setMessageCallback(MessageCallback callback) {
     mMessageCallback = std::move(callback);
+    mMod->getSelf().getLogger().debug("Message callback set");
 }
 
 void WebSocketServer::acceptLoop() {
+    mMod->getSelf().getLogger().debug("Accept loop started");
     while (mRunning) {
         sockaddr_in clientAddr{};
         int clientAddrLen = sizeof(clientAddr);
@@ -135,7 +164,7 @@ void WebSocketServer::acceptLoop() {
                 // 真正的错误
                 int error = WSAGetLastError();
                 if (error != WSAEINTR && error != WSAENOTSOCK) {
-                    mMod->getSelf().getLogger().warn("Accept failed: {}", error);
+                    mMod->getSelf().getLogger().warn("Accept failed with error: {}", error);
                 }
             }
             continue;
@@ -144,22 +173,29 @@ void WebSocketServer::acceptLoop() {
         // 获取客户端 IP
         char clientIP[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
-        mMod->getSelf().getLogger().info("New connection from {}:{}", clientIP, ntohs(clientAddr.sin_port));
+        mMod->getSelf().getLogger().info("New WebSocket connection from {}:{}", clientIP, ntohs(clientAddr.sin_port));
+        mMod->getSelf().getLogger().debug("Client socket: {}", static_cast<int>(clientSocket));
 
         // 在新线程中处理客户端
-        std::thread([this, clientSocket]() {
+        std::thread([this, clientSocket, clientIP = std::string(clientIP)]() {
+            mMod->getSelf().getLogger().trace("Starting client handler thread for {}", clientIP);
             handleClient(clientSocket);
         }).detach();
     }
+    mMod->getSelf().getLogger().debug("Accept loop ended");
 }
 
 void WebSocketServer::handleClient(SOCKET clientSocket) {
+    mMod->getSelf().getLogger().debug("Performing WebSocket handshake...");
+    
     // 执行 WebSocket 握手
     if (!performHandshake(clientSocket)) {
-        mMod->getSelf().getLogger().warn("WebSocket handshake failed");
+        mMod->getSelf().getLogger().warn("WebSocket handshake failed for socket {}", static_cast<int>(clientSocket));
         closesocket(clientSocket);
         return;
     }
+    
+    mMod->getSelf().getLogger().debug("WebSocket handshake successful");
 
     // 添加到客户端列表
     {
@@ -170,20 +206,25 @@ void WebSocketServer::handleClient(SOCKET clientSocket) {
     mMod->getSelf().getLogger().info("WebSocket client connected, total clients: {}", mClients.size());
 
     // 接收消息循环
+    mMod->getSelf().getLogger().trace("Entering message receive loop for socket {}", static_cast<int>(clientSocket));
     while (mRunning) {
         std::string message = receiveFrame(clientSocket);
         if (message.empty()) {
+            mMod->getSelf().getLogger().debug("Empty message received, connection may be closed");
             break; // 连接关闭或错误
         }
 
-        mMod->getSelf().getLogger().debug("Received message: {}", message);
+        mMod->getSelf().getLogger().debug("Received WebSocket message ({} bytes): {}", message.length(), message);
         
         if (mMessageCallback) {
             try {
+                mMod->getSelf().getLogger().trace("Invoking message callback...");
                 mMessageCallback(message);
             } catch (const std::exception& e) {
                 mMod->getSelf().getLogger().error("Error in message callback: {}", e.what());
             }
+        } else {
+            mMod->getSelf().getLogger().warn("No message callback set, ignoring message");
         }
     }
 
@@ -198,12 +239,17 @@ void WebSocketServer::handleClient(SOCKET clientSocket) {
 }
 
 bool WebSocketServer::performHandshake(SOCKET clientSocket) {
+    mMod->getSelf().getLogger().trace("Reading handshake request...");
+    
     char buffer[4096];
     int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
     
     if (bytesReceived <= 0) {
+        mMod->getSelf().getLogger().debug("No data received during handshake");
         return false;
     }
+    
+    mMod->getSelf().getLogger().trace("Received {} bytes for handshake", bytesReceived);
     
     buffer[bytesReceived] = '\0';
     std::string request(buffer);

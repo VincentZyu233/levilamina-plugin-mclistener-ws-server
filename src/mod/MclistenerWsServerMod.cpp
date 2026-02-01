@@ -8,13 +8,33 @@
 #include "ll/api/event/player/PlayerDisconnectEvent.h"
 #include "ll/api/event/player/PlayerChatEvent.h"
 #include "ll/api/service/Bedrock.h"
+#include "ll/api/io/LogLevel.h"
 
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/Level.h"
 
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cctype>
 
 namespace mclistener_ws_server {
+
+// 将字符串转换为日志级别
+static ll::io::LogLevel parseLogLevel(const std::string& levelStr) {
+    std::string lower = levelStr;
+    std::transform(lower.begin(), lower.end(), lower.begin(), 
+                   [](unsigned char c){ return std::tolower(c); });
+    
+    if (lower == "silent" || lower == "off") return ll::io::LogLevel::Off;
+    if (lower == "fatal") return ll::io::LogLevel::Fatal;
+    if (lower == "error") return ll::io::LogLevel::Error;
+    if (lower == "warn" || lower == "warning") return ll::io::LogLevel::Warn;
+    if (lower == "info") return ll::io::LogLevel::Info;
+    if (lower == "debug") return ll::io::LogLevel::Debug;
+    if (lower == "trace") return ll::io::LogLevel::Trace;
+    
+    return ll::io::LogLevel::Info; // 默认 info
+}
 
 MclistenerWsServerMod& MclistenerWsServerMod::getInstance() {
     static MclistenerWsServerMod instance;
@@ -34,33 +54,56 @@ bool MclistenerWsServerMod::load() {
         }
     }
 
+    // 设置日志级别
+    ll::io::LogLevel logLevel = parseLogLevel(mConfig.logLevel);
+    getSelf().getLogger().setLevel(logLevel);
+    getSelf().getLogger().info("Log level set to: {}", mConfig.logLevel);
+
+    // 输出配置信息 (debug 级别)
+    getSelf().getLogger().debug("Configuration loaded:");
+    getSelf().getLogger().debug("  - host: {}", mConfig.host);
+    getSelf().getLogger().debug("  - port: {}", mConfig.port);
+    getSelf().getLogger().debug("  - enablePlayerJoinBroadcast: {}", mConfig.enablePlayerJoinBroadcast);
+    getSelf().getLogger().debug("  - enablePlayerLeaveBroadcast: {}", mConfig.enablePlayerLeaveBroadcast);
+    getSelf().getLogger().debug("  - enablePlayerChatBroadcast: {}", mConfig.enablePlayerChatBroadcast);
+    getSelf().getLogger().debug("  - enableReceiveGroupMessage: {}", mConfig.enableReceiveGroupMessage);
+
     getSelf().getLogger().info("mclistener-ws-server loaded successfully!");
     return true;
 }
 
 bool MclistenerWsServerMod::enable() {
     getSelf().getLogger().info("Enabling mclistener-ws-server...");
+    getSelf().getLogger().debug("Creating WebSocket server instance...");
 
     // 创建并启动 WebSocket 服务器
     mWsServer = std::make_unique<WebSocketServer>(mConfig.host, mConfig.port, this);
     
+    getSelf().getLogger().debug("Starting WebSocket server on {}:{}...", mConfig.host, mConfig.port);
     if (!mWsServer->start()) {
         getSelf().getLogger().error("Failed to start WebSocket server!");
+        getSelf().getLogger().fatal("Plugin cannot function without WebSocket server!");
         return false;
     }
 
     // 设置消息回调 - 处理从聊天平台来的消息
     if (mConfig.enableReceiveGroupMessage) {
+        getSelf().getLogger().debug("Setting up message callback for group messages...");
         mWsServer->setMessageCallback([this](const std::string& message) {
+            getSelf().getLogger().trace("Raw message received: {}", message);
             try {
                 auto json = nlohmann::json::parse(message);
                 std::string type = json.value("type", "");
+                getSelf().getLogger().debug("Parsed message type: {}", type);
                 
                 if (type == "group_to_server") {
                     std::string groupId = json.value("group_id", "");
                     std::string groupName = json.value("group_name", "");
                     std::string nickname = json.value("nickname", "未知用户");
                     std::string content = json.value("message", "");
+
+                    getSelf().getLogger().debug("Group message details - group: {} ({}), user: {}", 
+                                                 groupName, groupId, nickname);
 
                     // 使用配置的消息格式
                     std::string formattedMsg = mConfig.groupMessageFormat;
@@ -80,30 +123,46 @@ bool MclistenerWsServerMod::enable() {
                         formattedMsg.replace(pos, 9, content);
                     }
 
+                    getSelf().getLogger().trace("Formatted message: {}", formattedMsg);
+
                     // 在游戏中广播消息
                     auto level = ll::service::getLevel();
                     if (level) {
-                        // 使用 Level::broadcastMessage 或直接告诉所有玩家
-                        level->forEachPlayer([&formattedMsg](Player& player) -> bool {
+                        int playerCount = 0;
+                        level->forEachPlayer([&formattedMsg, &playerCount](Player& player) -> bool {
                             player.sendMessage(formattedMsg);
+                            playerCount++;
                             return true; // 继续遍历
                         });
+                        getSelf().getLogger().debug("Broadcasted to {} players in-game", playerCount);
+                    } else {
+                        getSelf().getLogger().warn("Level not available, cannot broadcast message");
                     }
 
-                    getSelf().getLogger().info("Received group message: [{}] {}: {}", groupName, nickname, content);
+                    getSelf().getLogger().info("[Group->Server] [{}] {}: {}", groupName, nickname, content);
+                } else {
+                    getSelf().getLogger().debug("Ignoring message with type: {}", type);
                 }
+            } catch (const nlohmann::json::parse_error& e) {
+                getSelf().getLogger().error("JSON parse error: {}", e.what());
+                getSelf().getLogger().debug("Invalid JSON: {}", message);
             } catch (const std::exception& e) {
-                getSelf().getLogger().error("Failed to parse message: {}", e.what());
+                getSelf().getLogger().error("Failed to process message: {}", e.what());
             }
         });
+        getSelf().getLogger().debug("Message callback registered successfully");
+    } else {
+        getSelf().getLogger().debug("Group message receiving is disabled in config");
     }
 
     auto& eventBus = ll::event::EventBus::getInstance();
+    getSelf().getLogger().debug("Registering event listeners...");
 
     // 订阅玩家加入事件
     if (mConfig.enablePlayerJoinBroadcast) {
         mPlayerJoinListener = eventBus.emplaceListener<ll::event::PlayerJoinEvent>(
             [this](ll::event::PlayerJoinEvent& event) {
+                getSelf().getLogger().trace("PlayerJoinEvent triggered");
                 auto& player = event.self();
                 std::string playerName = player.getRealName();
 
@@ -111,16 +170,22 @@ bool MclistenerWsServerMod::enable() {
                 msg["type"] = "player_join";
                 msg["player_name"] = playerName;
 
-                mWsServer->broadcast(msg.dump());
-                getSelf().getLogger().info("Player {} joined, broadcasted to WebSocket clients", playerName);
+                std::string jsonStr = msg.dump();
+                getSelf().getLogger().trace("Broadcasting JSON: {}", jsonStr);
+                mWsServer->broadcast(jsonStr);
+                getSelf().getLogger().info("[Server->WS] Player {} joined", playerName);
             }
         );
+        getSelf().getLogger().debug("PlayerJoinEvent listener registered");
+    } else {
+        getSelf().getLogger().debug("Player join broadcast is disabled in config");
     }
 
     // 订阅玩家离开事件
     if (mConfig.enablePlayerLeaveBroadcast) {
         mPlayerLeaveListener = eventBus.emplaceListener<ll::event::PlayerDisconnectEvent>(
             [this](ll::event::PlayerDisconnectEvent& event) {
+                getSelf().getLogger().trace("PlayerDisconnectEvent triggered");
                 auto& player = event.self();
                 std::string playerName = player.getRealName();
 
@@ -128,40 +193,52 @@ bool MclistenerWsServerMod::enable() {
                 msg["type"] = "player_leave";
                 msg["player_name"] = playerName;
 
-                mWsServer->broadcast(msg.dump());
-                getSelf().getLogger().info("Player {} left, broadcasted to WebSocket clients", playerName);
+                std::string jsonStr = msg.dump();
+                getSelf().getLogger().trace("Broadcasting JSON: {}", jsonStr);
+                mWsServer->broadcast(jsonStr);
+                getSelf().getLogger().info("[Server->WS] Player {} left", playerName);
             }
         );
+        getSelf().getLogger().debug("PlayerDisconnectEvent listener registered");
+    } else {
+        getSelf().getLogger().debug("Player leave broadcast is disabled in config");
     }
 
     // 订阅玩家聊天事件
     if (mConfig.enablePlayerChatBroadcast) {
         mPlayerChatListener = eventBus.emplaceListener<ll::event::PlayerChatEvent>(
             [this](ll::event::PlayerChatEvent& event) {
+                getSelf().getLogger().trace("PlayerChatEvent triggered");
                 auto& player = event.self();
                 std::string playerName = player.getRealName();
                 std::string message = event.message();
 
-                getSelf().getLogger().info("[Chat] Captured chat from {}: {}", playerName, message);
+                getSelf().getLogger().debug("[Chat] {} said: {}", playerName, message);
 
                 nlohmann::json msg;
                 msg["type"] = "player_msg";
                 msg["player_name"] = playerName;
                 msg["content"] = message;
 
-                mWsServer->broadcast(msg.dump());
-                getSelf().getLogger().info("[Chat] Player {} said: {}, broadcasted to WebSocket clients", playerName, message);
+                std::string jsonStr = msg.dump();
+                getSelf().getLogger().trace("Broadcasting JSON: {}", jsonStr);
+                mWsServer->broadcast(jsonStr);
+                getSelf().getLogger().info("[Server->WS] Chat from {}: {}", playerName, message);
             }
         );
-        getSelf().getLogger().info("PlayerChatEvent listener registered successfully");
+        getSelf().getLogger().debug("PlayerChatEvent listener registered");
+    } else {
+        getSelf().getLogger().debug("Player chat broadcast is disabled in config");
     }
 
     getSelf().getLogger().info("mclistener-ws-server enabled successfully!");
+    getSelf().getLogger().info("WebSocket server listening on ws://{}:{}", mConfig.host, mConfig.port);
     return true;
 }
 
 bool MclistenerWsServerMod::disable() {
     getSelf().getLogger().info("Disabling mclistener-ws-server...");
+    getSelf().getLogger().debug("Removing event listeners...");
 
     auto& eventBus = ll::event::EventBus::getInstance();
 
@@ -169,22 +246,27 @@ bool MclistenerWsServerMod::disable() {
     if (mPlayerJoinListener) {
         eventBus.removeListener(mPlayerJoinListener);
         mPlayerJoinListener = nullptr;
+        getSelf().getLogger().debug("PlayerJoinEvent listener removed");
     }
 
     if (mPlayerLeaveListener) {
         eventBus.removeListener(mPlayerLeaveListener);
         mPlayerLeaveListener = nullptr;
+        getSelf().getLogger().debug("PlayerDisconnectEvent listener removed");
     }
 
     if (mPlayerChatListener) {
         eventBus.removeListener(mPlayerChatListener);
         mPlayerChatListener = nullptr;
+        getSelf().getLogger().debug("PlayerChatEvent listener removed");
     }
 
     // 停止 WebSocket 服务器
     if (mWsServer) {
+        getSelf().getLogger().debug("Stopping WebSocket server...");
         mWsServer->stop();
         mWsServer.reset();
+        getSelf().getLogger().debug("WebSocket server stopped and cleaned up");
     }
 
     getSelf().getLogger().info("mclistener-ws-server disabled successfully!");
