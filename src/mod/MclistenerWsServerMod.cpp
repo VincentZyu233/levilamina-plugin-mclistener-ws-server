@@ -25,6 +25,7 @@ namespace mclistener_ws_server {
 
 // 全局变量用于 hook 回调
 static MclistenerWsServerMod* g_modInstance = nullptr;
+static bool hookEnabled = false;
 
 // Hook TextPacket 处理函数
 LL_TYPE_INSTANCE_HOOK(
@@ -66,7 +67,6 @@ LL_TYPE_INSTANCE_HOOK(
 
 // Hook 注册器
 static ll::memory::HookRegistrar<TextPacketHook> textPacketHookRegistrar;
-static bool hookEnabled = false;
 
 // 将字符串转换为日志级别
 static ll::io::LogLevel parseLogLevel(const std::string& levelStr) {
