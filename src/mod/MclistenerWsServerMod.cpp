@@ -160,6 +160,9 @@ bool MclistenerWsServerMod::enable() {
 
     // 订阅玩家加入事件
     if (mConfig.enablePlayerJoinBroadcast) {
+        bool hasJoinEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerJoinEvent>);
+        getSelf().getLogger().info("PlayerJoinEvent registered in EventBus: {}", hasJoinEvent ? "YES" : "NO");
+        
         mPlayerJoinListener = eventBus.emplaceListener<ll::event::PlayerJoinEvent>(
             [this](ll::event::PlayerJoinEvent& event) {
                 getSelf().getLogger().trace("PlayerJoinEvent triggered");
@@ -176,13 +179,21 @@ bool MclistenerWsServerMod::enable() {
                 getSelf().getLogger().info("[Server->WS] Player {} joined", playerName);
             }
         );
-        getSelf().getLogger().debug("PlayerJoinEvent listener registered");
+        
+        if (mPlayerJoinListener) {
+            getSelf().getLogger().info("PlayerJoinEvent listener registered successfully");
+        } else {
+            getSelf().getLogger().error("Failed to register PlayerJoinEvent listener!");
+        }
     } else {
         getSelf().getLogger().debug("Player join broadcast is disabled in config");
     }
 
     // 订阅玩家离开事件
     if (mConfig.enablePlayerLeaveBroadcast) {
+        bool hasLeaveEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerDisconnectEvent>);
+        getSelf().getLogger().info("PlayerDisconnectEvent registered in EventBus: {}", hasLeaveEvent ? "YES" : "NO");
+        
         mPlayerLeaveListener = eventBus.emplaceListener<ll::event::PlayerDisconnectEvent>(
             [this](ll::event::PlayerDisconnectEvent& event) {
                 getSelf().getLogger().trace("PlayerDisconnectEvent triggered");
@@ -199,13 +210,22 @@ bool MclistenerWsServerMod::enable() {
                 getSelf().getLogger().info("[Server->WS] Player {} left", playerName);
             }
         );
-        getSelf().getLogger().debug("PlayerDisconnectEvent listener registered");
+        
+        if (mPlayerLeaveListener) {
+            getSelf().getLogger().info("PlayerDisconnectEvent listener registered successfully");
+        } else {
+            getSelf().getLogger().error("Failed to register PlayerDisconnectEvent listener!");
+        }
     } else {
         getSelf().getLogger().debug("Player leave broadcast is disabled in config");
     }
 
     // 订阅玩家聊天事件
     if (mConfig.enablePlayerChatBroadcast) {
+        // 先检查事件是否已注册
+        bool hasEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerChatEvent>);
+        getSelf().getLogger().info("PlayerChatEvent registered in EventBus: {}", hasEvent ? "YES" : "NO");
+        
         mPlayerChatListener = eventBus.emplaceListener<ll::event::PlayerChatEvent>(
             [this](ll::event::PlayerChatEvent& event) {
                 getSelf().getLogger().trace("PlayerChatEvent triggered");
@@ -226,7 +246,15 @@ bool MclistenerWsServerMod::enable() {
                 getSelf().getLogger().info("[Server->WS] Chat from {}: {}", playerName, message);
             }
         );
-        getSelf().getLogger().debug("PlayerChatEvent listener registered");
+        
+        // 检查监听器是否注册成功
+        if (mPlayerChatListener) {
+            getSelf().getLogger().info("PlayerChatEvent listener registered successfully (ID: {})", 
+                                        mPlayerChatListener->getId());
+        } else {
+            getSelf().getLogger().error("Failed to register PlayerChatEvent listener!");
+            getSelf().getLogger().error("This might be because the event emitter is not initialized.");
+        }
     } else {
         getSelf().getLogger().debug("Player chat broadcast is disabled in config");
     }
