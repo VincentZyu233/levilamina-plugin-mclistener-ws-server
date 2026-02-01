@@ -1,0 +1,26 @@
+# xmake
+.xmake/
+build/
+bin/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.vcxproj*
+*.sln
+
+# Build outputs
+*.dll
+*.pdb
+*.lib
+*.exp
+*.obj
+*.ilk
+
+# Clangd cache
+.cache/
+
+# compile_commands.json (generated)
+compile_commands.json

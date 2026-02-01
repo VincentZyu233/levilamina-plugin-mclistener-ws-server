@@ -1,0 +1,78 @@
+name: Build LeviLamina Plugin
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      version:
+        description: '版本号 (如 0.0.1-alpha.1)'
+        required: false
+        default: 'manual'
+
+jobs:
+  # 检查是否需要构建
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check build trigger
+        id: check
+        run: |
+          # 手动触发时直接构建
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "✅ 手动触发，版本: ${{ github.event.inputs.version }}"
+          # Push 时检查 commit message 是否包含 "build version"
+          else
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            echo "📝 Commit message: $COMMIT_MSG"
+            
+            if [[ "$COMMIT_MSG" =~ build[[:space:]]+version[[:space:]]+([^[:space:]]+) ]]; then
+              VERSION="${BASH_REMATCH[1]}"
+              echo "should_build=true" >> $GITHUB_OUTPUT
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
+              echo "✅ 检测到构建指令，版本: $VERSION"
+            else
+              echo "should_build=false" >> $GITHUB_OUTPUT
+              echo "version=none" >> $GITHUB_OUTPUT
+              echo "⏭️ 跳过构建 (commit message 中未找到 'build version <版本号>')"
+            fi
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
+    runs-on: windows-latest
+    
+    steps:
+      - name: Show build info
+        run: |
+          echo "🚀 开始构建版本: ${{ needs.check.outputs.version }}"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Update xmake repositories
+        run: xmake repo -u
+
+      - name: Configure
+        run: xmake f -y -p windows -a x64 -m release
+
+      - name: Build
+        run: xmake
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mclistener-ws-server-${{ needs.check.outputs.version }}-windows-x64
+          path: bin/mclistener-ws-server/
+          retention-days: 30
