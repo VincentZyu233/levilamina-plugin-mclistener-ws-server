@@ -42,7 +42,9 @@ LL_TYPE_INSTANCE_HOOK(
     // 在调用 origin 之前先捕获消息（在其他插件处理之前）
     if (hookEnabled && g_modInstance && g_modInstance->getConfig().enablePlayerChatBroadcast) {
         if (auto player = thisFor<NetEventCallback>()->_getServerPlayer(identifier, packet.mSenderSubId); player) {
-            auto msg = std::visit([](auto&& arg) { return arg.mMessage; }, packet.mBody.get());
+            std::string msg = std::string(std::visit([](auto&& arg) -> std::string { 
+                return std::string(arg.mMessage); 
+            }, packet.mBody.get()));
             std::string playerName = player->getRealName();
             
             g_modInstance->getSelf().getLogger().trace("TextPacketHook triggered (High priority, before event system)");
