@@ -5,7 +5,7 @@
 #include "ll/api/Config.h"
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/player/PlayerJoinEvent.h"
-#include "ll/api/event/player/PlayerLeaveEvent.h"
+#include "ll/api/event/player/PlayerDisconnectEvent.h"
 #include "ll/api/event/player/PlayerChatEvent.h"
 #include "ll/api/service/Bedrock.h"
 
@@ -119,8 +119,8 @@ bool MclistenerWsServerMod::enable() {
 
     // 订阅玩家离开事件
     if (mConfig.enablePlayerLeaveBroadcast) {
-        mPlayerLeaveListener = eventBus.emplaceListener<ll::event::PlayerLeaveEvent>(
-            [this](ll::event::PlayerLeaveEvent& event) {
+        mPlayerLeaveListener = eventBus.emplaceListener<ll::event::PlayerDisconnectEvent>(
+            [this](ll::event::PlayerDisconnectEvent& event) {
                 auto& player = event.self();
                 std::string playerName = player.getRealName();
 
