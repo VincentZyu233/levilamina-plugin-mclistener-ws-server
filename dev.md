@@ -82,6 +82,7 @@ BDS服务端/
 如果不想装完整的 Visual Studio，可以只装 Build Tools：
 
 1. 下载 [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)
+> Visual Studio 2026 生成工具， Build Tools for Visual Studio 2026， 网页里面叫这个
 2. 安装时选择 "C++ 生成工具"
 3. 同样需要安装 xmake
 

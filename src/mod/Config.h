@@ -9,7 +9,7 @@ struct Config {
     
     // WebSocket 服务器配置
     std::string host = "0.0.0.0";
-    int port = 8766;
+    int port = 60201;
     
     // 功能开关
     bool enablePlayerJoinBroadcast = true;

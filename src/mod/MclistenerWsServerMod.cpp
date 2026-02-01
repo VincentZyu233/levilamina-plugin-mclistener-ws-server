@@ -142,15 +142,18 @@ bool MclistenerWsServerMod::enable() {
                 std::string playerName = player.getRealName();
                 std::string message = event.message();
 
+                getSelf().getLogger().info("[Chat] Captured chat from {}: {}", playerName, message);
+
                 nlohmann::json msg;
                 msg["type"] = "player_msg";
                 msg["player_name"] = playerName;
                 msg["content"] = message;
 
                 mWsServer->broadcast(msg.dump());
-                getSelf().getLogger().debug("Player {} said: {}, broadcasted to WebSocket clients", playerName, message);
+                getSelf().getLogger().info("[Chat] Player {} said: {}, broadcasted to WebSocket clients", playerName, message);
             }
         );
+        getSelf().getLogger().info("PlayerChatEvent listener registered successfully");
     }
 
     getSelf().getLogger().info("mclistener-ws-server enabled successfully!");
