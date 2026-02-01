@@ -9,15 +9,64 @@
 #include "ll/api/event/player/PlayerChatEvent.h"
 #include "ll/api/service/Bedrock.h"
 #include "ll/api/io/LogLevel.h"
+#include "ll/api/memory/Hook.h"
 
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/Level.h"
+#include "mc/network/ServerNetworkHandler.h"
+#include "mc/network/NetworkIdentifier.h"
+#include "mc/network/packet/TextPacket.h"
 
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
 
 namespace mclistener_ws_server {
+
+// 全局变量用于 hook 回调
+static MclistenerWsServerMod* g_modInstance = nullptr;
+
+// Hook TextPacket 处理函数
+LL_TYPE_INSTANCE_HOOK(
+    TextPacketHook,
+    ll::memory::HookPriority::Low, // 低优先级，在其他插件之后执行
+    ServerNetworkHandler,
+    &ServerNetworkHandler::$handle,
+    void,
+    NetworkIdentifier const& identifier,
+    TextPacket const&        packet
+) {
+    // 先调用原始函数
+    origin(identifier, packet);
+    
+    // 只有在 hook 模式启用时才处理
+    if (hookEnabled && g_modInstance && g_modInstance->getConfig().enablePlayerChatBroadcast) {
+        if (auto player = thisFor<NetEventCallback>()->_getServerPlayer(identifier, packet.mSenderSubId); player) {
+            auto msg = std::visit([](auto&& arg) { return arg.mMessage; }, packet.mBody.get());
+            std::string playerName = player->getRealName();
+            
+            g_modInstance->getSelf().getLogger().trace("TextPacketHook triggered");
+            g_modInstance->getSelf().getLogger().debug("[Hook] {} said: {}", playerName, msg);
+            
+            nlohmann::json jsonMsg;
+            jsonMsg["type"] = "player_msg";
+            jsonMsg["player_name"] = playerName;
+            jsonMsg["content"] = msg;
+            
+            std::string jsonStr = jsonMsg.dump();
+            g_modInstance->getSelf().getLogger().trace("Broadcasting JSON via hook: {}", jsonStr);
+            
+            if (auto* ws = g_modInstance->getWebSocketServer()) {
+                ws->broadcast(jsonStr);
+                g_modInstance->getSelf().getLogger().info("[Server->WS][Hook] Chat from {}: {}", playerName, msg);
+            }
+        }
+    }
+}
+
+// Hook 注册器
+static ll::memory::HookRegistrar<TextPacketHook> textPacketHookRegistrar;
+static bool hookEnabled = false;
 
 // 将字符串转换为日志级别
 static ll::io::LogLevel parseLogLevel(const std::string& levelStr) {
@@ -42,33 +91,51 @@ MclistenerWsServerMod& MclistenerWsServerMod::getInstance() {
 }
 
 bool MclistenerWsServerMod::load() {
-    getSelf().getLogger().info("Loading mclistener-ws-server...");
+    auto& logger = getSelf().getLogger();
+    
+    // ASCII Art Banner
+    logger.info("");
+    logger.info(R"(                         ___      __                        )");
+    logger.info(R"(   ____ ___  _____      / (_)____/ /____  ____  ___  _____   )");
+    logger.info(R"(  / __ `__ \/ ___/_____/ / / ___/ __/ _ \/ __ \/ _ \/ ___/   )");
+    logger.info(R"( / / / / / / /__/_____/ / (__  ) /_/  __/ / / /  __/ /       )");
+    logger.info(R"(/_/ /_/ /_/\___/     /_/_/____/\__/\___/_/ /_/\___/_/        )");
+    logger.info(R"(                                                             )");
+    logger.info(R"( _      _______      ________  ______   _____  _____         )");
+    logger.info(R"(| | /| / / ___/_____/ ___/ _ \/ ___/ | / / _ \/ ___/         )");
+    logger.info(R"(| |/ |/ (__  )_____(__  )  __/ /   | |/ /  __/ /             )");
+    logger.info(R"(|__/|__/____/     /____/\___/_/    |___/\___/_/              )");
+    logger.info("");
+    logger.info("  Author: VincentZyu");
+    logger.info("  GitHub: https://github.com/VincentZyu233");
+    logger.info("");
 
     // 读取配置文件
     const auto& configFilePath = getSelf().getConfigDir() / "config.json";
     if (!ll::config::loadConfig(mConfig, configFilePath)) {
-        getSelf().getLogger().warn("Cannot load configurations from {}", configFilePath.string());
-        getSelf().getLogger().info("Saving default configurations...");
+        logger.warn("Cannot load configurations from {}", configFilePath.string());
+        logger.info("Saving default configurations...");
         if (!ll::config::saveConfig(mConfig, configFilePath)) {
-            getSelf().getLogger().error("Failed to save default configurations!");
+            logger.error("Failed to save default configurations!");
         }
     }
 
     // 设置日志级别
     ll::io::LogLevel logLevel = parseLogLevel(mConfig.logLevel);
-    getSelf().getLogger().setLevel(logLevel);
-    getSelf().getLogger().info("Log level set to: {}", mConfig.logLevel);
+    logger.setLevel(logLevel);
+    logger.info("Log level set to: {}", mConfig.logLevel);
 
     // 输出配置信息 (debug 级别)
-    getSelf().getLogger().debug("Configuration loaded:");
-    getSelf().getLogger().debug("  - host: {}", mConfig.host);
-    getSelf().getLogger().debug("  - port: {}", mConfig.port);
-    getSelf().getLogger().debug("  - enablePlayerJoinBroadcast: {}", mConfig.enablePlayerJoinBroadcast);
-    getSelf().getLogger().debug("  - enablePlayerLeaveBroadcast: {}", mConfig.enablePlayerLeaveBroadcast);
-    getSelf().getLogger().debug("  - enablePlayerChatBroadcast: {}", mConfig.enablePlayerChatBroadcast);
-    getSelf().getLogger().debug("  - enableReceiveGroupMessage: {}", mConfig.enableReceiveGroupMessage);
+    logger.debug("Configuration loaded:");
+    logger.debug("  - host: {}", mConfig.host);
+    logger.debug("  - port: {}", mConfig.port);
+    logger.debug("  - enablePlayerJoinBroadcast: {}", mConfig.enablePlayerJoinBroadcast);
+    logger.debug("  - enablePlayerLeaveBroadcast: {}", mConfig.enablePlayerLeaveBroadcast);
+    logger.debug("  - enablePlayerChatBroadcast: {}", mConfig.enablePlayerChatBroadcast);
+    logger.debug("  - enableReceiveGroupMessage: {}", mConfig.enableReceiveGroupMessage);
+    logger.debug("  - chatCaptureMode: {}", mConfig.chatCaptureMode);
 
-    getSelf().getLogger().info("mclistener-ws-server loaded successfully!");
+    logger.info("mclistener-ws-server loaded successfully!");
     return true;
 }
 
@@ -222,38 +289,77 @@ bool MclistenerWsServerMod::enable() {
 
     // 订阅玩家聊天事件
     if (mConfig.enablePlayerChatBroadcast) {
-        // 先检查事件是否已注册
-        bool hasEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerChatEvent>);
-        getSelf().getLogger().info("PlayerChatEvent registered in EventBus: {}", hasEvent ? "YES" : "NO");
+        // 设置全局实例指针供 hook 使用
+        g_modInstance = this;
         
-        mPlayerChatListener = eventBus.emplaceListener<ll::event::PlayerChatEvent>(
-            [this](ll::event::PlayerChatEvent& event) {
-                getSelf().getLogger().trace("PlayerChatEvent triggered");
-                auto& player = event.self();
-                std::string playerName = player.getRealName();
-                std::string message = event.message();
+        std::string mode = mConfig.chatCaptureMode;
+        std::transform(mode.begin(), mode.end(), mode.begin(), 
+                       [](unsigned char c){ return std::tolower(c); });
+        
+        getSelf().getLogger().info("Chat capture mode: {}", mConfig.chatCaptureMode);
+        
+        // 使用 event 方式
+        if (mode == "event" || mode == "both") {
+            bool hasEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerChatEvent>);
+            getSelf().getLogger().info("PlayerChatEvent registered in EventBus: {}", hasEvent ? "YES" : "NO");
+            
+            mPlayerChatListener = eventBus.emplaceListener<ll::event::PlayerChatEvent>(
+                [this](ll::event::PlayerChatEvent& event) {
+                    getSelf().getLogger().trace("PlayerChatEvent triggered");
+                    auto& player = event.self();
+                    std::string playerName = player.getRealName();
+                    std::string message = event.message();
 
-                getSelf().getLogger().debug("[Chat] {} said: {}", playerName, message);
+                    getSelf().getLogger().debug("[Chat] {} said: {}", playerName, message);
 
-                nlohmann::json msg;
-                msg["type"] = "player_msg";
-                msg["player_name"] = playerName;
-                msg["content"] = message;
+                    nlohmann::json msg;
+                    msg["type"] = "player_msg";
+                    msg["player_name"] = playerName;
+                    msg["content"] = message;
 
-                std::string jsonStr = msg.dump();
-                getSelf().getLogger().trace("Broadcasting JSON: {}", jsonStr);
-                mWsServer->broadcast(jsonStr);
-                getSelf().getLogger().info("[Server->WS] Chat from {}: {}", playerName, message);
+                    std::string jsonStr = msg.dump();
+                    getSelf().getLogger().trace("Broadcasting JSON: {}", jsonStr);
+                    mWsServer->broadcast(jsonStr);
+                    getSelf().getLogger().info("[Server->WS][Event] Chat from {}: {}", playerName, message);
+                }
+            );
+            
+            if (mPlayerChatListener) {
+                getSelf().getLogger().info("PlayerChatEvent listener registered successfully (ID: {})", 
+                                            mPlayerChatListener->getId());
+            } else {
+                getSelf().getLogger().warn("Failed to register PlayerChatEvent listener!");
+                getSelf().getLogger().warn("Consider using 'hook_packet' mode if this persists.");
             }
-        );
+        }
         
-        // 检查监听器是否注册成功
-        if (mPlayerChatListener) {
-            getSelf().getLogger().info("PlayerChatEvent listener registered successfully (ID: {})", 
-                                        mPlayerChatListener->getId());
-        } else {
-            getSelf().getLogger().error("Failed to register PlayerChatEvent listener!");
-            getSelf().getLogger().error("This might be because the event emitter is not initialized.");
+        // 使用 hook_packet 方式
+        if (mode == "hook_packet" || mode == "both") {
+            getSelf().getLogger().info("Enabling TextPacket hook for chat capture...");
+            hookEnabled = true;
+            getSelf().getLogger().info("TextPacket hook enabled successfully");
+        }
+        
+        if (mode != "event" && mode != "hook_packet" && mode != "both") {
+            getSelf().getLogger().warn("Unknown chatCaptureMode '{}', defaulting to 'event'", mConfig.chatCaptureMode);
+            // 默认使用 event 方式
+            bool hasEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerChatEvent>);
+            mPlayerChatListener = eventBus.emplaceListener<ll::event::PlayerChatEvent>(
+                [this](ll::event::PlayerChatEvent& event) {
+                    getSelf().getLogger().trace("PlayerChatEvent triggered");
+                    auto& player = event.self();
+                    std::string playerName = player.getRealName();
+                    std::string message = event.message();
+
+                    nlohmann::json msg;
+                    msg["type"] = "player_msg";
+                    msg["player_name"] = playerName;
+                    msg["content"] = message;
+
+                    mWsServer->broadcast(msg.dump());
+                    getSelf().getLogger().info("[Server->WS] Chat from {}: {}", playerName, message);
+                }
+            );
         }
     } else {
         getSelf().getLogger().debug("Player chat broadcast is disabled in config");
@@ -269,6 +375,13 @@ bool MclistenerWsServerMod::disable() {
     getSelf().getLogger().debug("Removing event listeners...");
 
     auto& eventBus = ll::event::EventBus::getInstance();
+
+    // 禁用 hook
+    if (hookEnabled) {
+        hookEnabled = false;
+        getSelf().getLogger().debug("TextPacket hook disabled");
+    }
+    g_modInstance = nullptr;
 
     // 取消订阅事件
     if (mPlayerJoinListener) {
