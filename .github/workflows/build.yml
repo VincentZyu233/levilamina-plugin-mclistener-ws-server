@@ -49,28 +49,38 @@ jobs:
     runs-on: windows-latest
     
     steps:
-      - name: Show build info
+      - name: 🚀 Show build info
         run: |
           echo "🚀 开始构建版本: ${{ needs.check.outputs.version }}"
 
-      - name: Checkout
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
-      - name: Setup xmake
+      - name: 🔧 Setup xmake
         uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
 
-      - name: Update xmake repositories
+      - name: 💾 Cache xmake packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/.xmake/packages
+            ~/AppData/Local/.xmake/packages
+          key: ${{ runner.os }}-xmake-${{ hashFiles('xmake.lua') }}
+          restore-keys: |
+            ${{ runner.os }}-xmake-
+
+      - name: 📦 Update xmake repositories
         run: xmake repo -u
 
-      - name: Configure
+      - name: ⚙️ Configure
         run: xmake f -y -p windows -a x64 -m release
 
-      - name: Build
+      - name: 🔨 Build
         run: xmake
 
-      - name: Upload artifact
+      - name: 📤 Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mclistener-ws-server-${{ needs.check.outputs.version }}-windows-x64

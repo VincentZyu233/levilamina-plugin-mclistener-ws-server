@@ -41,27 +41,40 @@ LL_TYPE_INSTANCE_HOOK(
 ) {
     // 在调用 origin 之前先捕获消息（在其他插件处理之前）
     if (hookEnabled && g_modInstance && g_modInstance->getConfig().enablePlayerChatBroadcast) {
-        if (auto player = thisFor<NetEventCallback>()->_getServerPlayer(identifier, packet.mSenderSubId); player) {
-            std::string msg = std::string(std::visit([](auto&& arg) -> std::string { 
-                return std::string(arg.mMessage); 
-            }, packet.mBody.get()));
-            std::string playerName = player->getRealName();
-            
-            g_modInstance->getSelf().getLogger().trace("TextPacketHook triggered (High priority, before event system)");
-            g_modInstance->getSelf().getLogger().debug("[Hook] {} said: {}", playerName, msg);
-            
-            nlohmann::json jsonMsg;
-            jsonMsg["type"] = "player_msg";
-            jsonMsg["player_name"] = playerName;
-            jsonMsg["content"] = msg;
-            
-            std::string jsonStr = jsonMsg.dump();
-            g_modInstance->getSelf().getLogger().trace("Broadcasting JSON via hook: {}", jsonStr);
-            
-            if (auto* ws = g_modInstance->getWebSocketServer()) {
-                ws->broadcast(jsonStr);
-                g_modInstance->getSelf().getLogger().info("[Server->WS][Hook] Chat from {}: {}", playerName, msg);
+        try {
+            // 获取玩家对象
+            auto player = thisFor<NetEventCallback>()->_getServerPlayer(identifier, packet.mSenderSubId);
+            if (player) {
+                // 使用 TextPacketPayload 提供的安全 API 获取消息内容
+                std::string msg = packet.getMessage();
+                std::string playerName = player->getRealName();
+                
+                // 跳过空消息
+                if (msg.empty()) {
+                    origin(identifier, packet);
+                    return;
+                }
+                
+                g_modInstance->getSelf().getLogger().trace("TextPacketHook triggered (High priority, before event system)");
+                g_modInstance->getSelf().getLogger().debug("[Hook] {} said: {}", playerName, msg);
+                
+                nlohmann::json jsonMsg;
+                jsonMsg["type"] = "player_msg";
+                jsonMsg["player_name"] = playerName;
+                jsonMsg["content"] = msg;
+                
+                std::string jsonStr = jsonMsg.dump();
+                g_modInstance->getSelf().getLogger().trace("Broadcasting JSON via hook: {}", jsonStr);
+                
+                if (auto* ws = g_modInstance->getWebSocketServer()) {
+                    ws->broadcast(jsonStr);
+                    g_modInstance->getSelf().getLogger().info("[Server->WS][Hook] Chat from {}: {}", playerName, msg);
+                }
             }
+        } catch (const std::exception& e) {
+            g_modInstance->getSelf().getLogger().error("TextPacketHook error: {}", e.what());
+        } catch (...) {
+            g_modInstance->getSelf().getLogger().error("TextPacketHook unknown error");
         }
     }
     
