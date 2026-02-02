@@ -320,9 +320,11 @@ bool MclistenerWsServerMod::enable() {
             bool hasEvent = eventBus.hasEvent(ll::event::getEventId<ll::event::PlayerChatEvent>);
             getSelf().getLogger().info("PlayerChatEvent registered in EventBus: {}", hasEvent ? "YES" : "NO");
             
+            // 使用高优先级(High=100)注册监听器，确保在 LSE 插件(Normal=200)之前执行
+            // 这样即使 GwChat 等插件取消事件，我们也能捕获到消息
             mPlayerChatListener = eventBus.emplaceListener<ll::event::PlayerChatEvent>(
                 [this](ll::event::PlayerChatEvent& event) {
-                    getSelf().getLogger().trace("PlayerChatEvent triggered");
+                    getSelf().getLogger().trace("PlayerChatEvent triggered (High priority)");
                     auto& player = event.self();
                     std::string playerName = player.getRealName();
                     std::string message = event.message();
@@ -338,11 +340,12 @@ bool MclistenerWsServerMod::enable() {
                     getSelf().getLogger().trace("Broadcasting JSON: {}", jsonStr);
                     mWsServer->broadcast(jsonStr);
                     getSelf().getLogger().info("[Server->WS][Event] Chat from {}: {}", playerName, message);
-                }
+                },
+                ll::event::EventPriority::High  // 优先级: High(100) < Normal(200)，先执行
             );
             
             if (mPlayerChatListener) {
-                getSelf().getLogger().info("PlayerChatEvent listener registered successfully (ID: {})", 
+                getSelf().getLogger().info("PlayerChatEvent listener registered with HIGH priority (ID: {})", 
                                             mPlayerChatListener->getId());
             } else {
                 getSelf().getLogger().warn("Failed to register PlayerChatEvent listener!");
