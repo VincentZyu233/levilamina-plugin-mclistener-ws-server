@@ -91,7 +91,7 @@ BDS服务端/
 不想配置本地环境？可以用 GitHub Actions 自动编译！
 
 ```shell
-git commit -m "build version 0.0.1-alpha.1+20260201"
+git commit -m "build version 0.0.4-beta.5+20260202. fix: 修 复 hook_packet 模式下玩家聊天导致崩服的问题"
 # 或者
 git commit -m "fix: 修复bug build version 0.0.2"
 ```
