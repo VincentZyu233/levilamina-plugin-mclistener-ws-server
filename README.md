@@ -1,3 +1,5 @@
+![levilamina-plugin-mclistener-ws-server](https://socialify.git.ci/VincentZyuApps/levilamina-plugin-mclistener-ws-server/image?custom_description=%E7%BE%A4%E6%9C%8D%E4%BA%92%E9%80%9A%EF%BC%8C%E6%9C%8D%E5%8A%A1%E7%AB%AF%E6%98%AFLeviMania%EF%BC%8C%E5%9F%BA%E5%B2%A9%E7%89%88%E6%9C%8D%E5%8A%A1%E7%AB%AF%EF%BC%8C%E6%9C%8D%E5%8A%A1%E7%AB%AF%E7%8E%A9%E5%AE%B6%E8%BF%9B%E5%87%BA%E5%92%8C%E8%81%8A%E5%A4%A9%E8%BD%AC%E5%8F%91%E5%88%B0%E8%81%8A%E5%A4%A9%E5%B9%B3%E5%8F%B0%EF%BC%8C%E8%81%8A%E5%A4%A9%E5%B9%B3%E5%8F%B0%E4%BF%A1%E6%81%AF%E8%BD%AC%E5%8F%91%E5%88%B0%E6%9C%8D%E5%8A%A1%E7%AB%AF+&description=1&font=Bitter&forks=1&issues=1&language=1&logo=https%3A%2F%2Favatars.githubusercontent.com%2Fu%2F78095377%3Fs%3D200%26v%3D4&name=1&owner=1&pulls=1&stargazers=1&theme=Auto)
+
 # mclistener-ws-server
 
 ```shell
@@ -15,6 +17,8 @@
 ```
 
 一个用于 LeviLamina (基岩版 Minecraft 服务端) 的 WebSocket 服务端插件，用于实现群服互通功能。
+
+> 💡 **快速开始**：本插件是 WebSocket 服务端，需要配合客户端使用。推荐使用 [koishi-plugin-mclistener-ws-client](https://gitee.com/vincent-zyu/koishi-plugin-mclistener-ws-client) 对接 QQ、Discord 等聊天平台！
 
 ## 功能特性
 
